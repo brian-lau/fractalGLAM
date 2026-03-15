@@ -19,6 +19,7 @@ knitr::opts_chunk$set(
 
 library(fractalGLAM)
 library(tidyverse)
+library(magrittr)
 library(cmdstanr)
 library(bayesplot)
 library(posterior)
@@ -34,8 +35,13 @@ tryCatch({
 
 # 1. Simulate Synthetic Data
 set.seed(42)
+
+# Simulation Constants
 n_subs <- 50
 n_trials <- 200
+s_const <- 3e-4       # Scaling factor
+true_v_val <- 1.5     # Group velocity
+true_sigma_val <- 0.2 # Group noise
 
 # 1. Create individual differences in Gamma
 # We sample a different 'true gamma' for each person
@@ -53,76 +59,29 @@ sim_data <- expand.grid(subject_id = 1:n_subs, trial = 1:n_trials) %>%
     gaze_right = 1 - gaze_left,
     v_l_scaled = scales::rescale(value_left, to = c(1, 10)),
     v_r_scaled = scales::rescale(value_right, to = c(1, 10))
-  ) %>%
+  )
+sim_data <- sim_data %>%
   mutate(
     # 1. Calculate the raw GLAM signal
     signal = (v_r_scaled * (gaze_right + true_gamma_sub * gaze_left)) - 
              (v_l_scaled * (gaze_left + true_gamma_sub * gaze_right)),
     
-    # 2. Choice probability (Sigmoid is correct here)
+    # 2. Choice probability 
+    # Use signal * 0.5 or higher to ensure choices aren't purely random
     prob_right = plogis(signal * 0.5), 
     choice = rbinom(n(), 1, prob_right),
     
-    # 3. RT Drift Magnitude (The Fix)
-    # RT should be high when signal is near 0. 
-    # We use a 'minimum drift' floor (0.01) to avoid infinite RTs.
-    drift_mag = abs(signal) + 0.01,
+    # 3. Decision Drift (Nu * S * Magnitude)
+    # This is exactly how it's calculated in your Stan loop now
+    # We add 0.01 floor to match the 'bulletproof' fix in Stan
+    drift = true_v_val * s_const * (abs(signal) + 0.01),
     
-    # 4. Generate RT: Scale it so that small drift_mag = Large RT
-    # 1/drift_mag creates the hump at signal = 0
-    rt = rlnorm(n(), log(5 / drift_mag), 0.2) 
+    # 4. Generate RT using your parameters
+    # - The 'location' (mu) of lognormal is log(1/drift)
+    # - The 'scale' is true_sigma_val
+    rt = rlnorm(n(), meanlog = log(1 / drift), sdlog = true_sigma_val)
   )
-# set.seed(123)
-# n_subs <- 50
-# n_trials <- 200
-# 
-# # True parameters for recovery
-# true_gamma_val <- 0.3
-# true_v_val <- 1.5
-# s_const <- 3e-4
-# 
-# sim_data <- expand.grid(subject_id = 1:n_subs, trial = 1:n_trials) %>%
-#   mutate(
-#     # Simulate Z-scored ratings
-#     value_left = rnorm(n(), 0, 1),
-#     value_right = rnorm(n(), 0, 1),
-#     # Simulate random gaze distribution
-#     gaze_left = runif(n(), 0.1, 0.9),
-#     gaze_right = 1 - gaze_left,
-#     # Map to 1-10 range as done in prep_glam_data
-#     v_l_scaled = scales::rescale(value_left, to = c(1, 10)),
-#     v_r_scaled = scales::rescale(value_right, to = c(1, 10))
-#   ) 
-# sim_data <- sim_data %>%
-#   mutate(
-#     signal = (v_r_scaled * (gaze_right + true_gamma_val * gaze_left)) - 
-#              (v_l_scaled * (gaze_left + true_gamma_val * gaze_right)),
-#     
-#     # 1. Drift for RT (uses the tiny s_const)
-#     drift = true_v_val * s_const * (1 / (1 + exp(-signal))),
-#     
-#     # 2. Choice Probability (needs a larger scale to be 'behavioral')
-#     # We use signal * 0.5 to make choices deterministic enough to show a slope
-#     prob_right = plogis(signal * 0.5), 
-#     choice = rbinom(n(), 1, prob_right),
-#     
-#     # 3. RT remains the same
-#     rt = rlnorm(n(), log(1 / drift), 0.2)
-#   )
 
-# %>%
-#   mutate(
-#     # Generative GLAM Signal
-#     # r = (v_r * (g_r + gamma * g_l)) - (v_l * (g_l + gamma * g_r))
-#     signal = (v_r_scaled * (gaze_right + true_gamma_val * gaze_left)) - 
-#              (v_l_scaled * (gaze_left + true_gamma_val * gaze_right)),
-#     # Drift rate = v * s * sigmoid(signal)
-#     drift = true_v_val * s_const * (1 / (1 + exp(-signal))),
-#     # Generate Choice (Bernoulli)
-#     choice = rbinom(n(), 1, plogis(drift)),
-#     # Generate RT (Log-normal to match our likelihood)
-#     rt = rlnorm(n(), log(1 / drift), 0.2)
-#   )
 
 # Preview simulated data
 head(sim_data)
@@ -140,17 +99,9 @@ fit <- fit_glam(
 # Initialize near the group means to avoid the -inf crash
   init = 0.1#, 
 )
-# 
-# mcmc_fit <- fit_glam(
-#   processed_data %>% filter(subject_id == 1), 
-#   method = "sample", 
-#   iter_warmup = 500, 
-#   iter_sampling = 500, 
-#   chains = 2
-# )
 
 # mcmc_fit <- fit_glam(
-#   processed_data, 
+#   processed_data %>% filter(subject_id == 1), 
 #   method = "sample",
 #   chains = 2,
 #   iter_warmup = 1000,
@@ -160,15 +111,79 @@ fit <- fit_glam(
 #   adapt_delta = 0.95     # Increased from default 0.80
 # )
 
-# 3. Verify Gamma Recovery
+# 3. Verify Parameter Recovery
+library(tidyverse)
+library(posterior)
+
+# --- 1. Extract Group-Level Means (Behavioral Scale) ---
+group_summary <- fit$summary(c("mu_v_raw", "mu_gamma_raw", "mu_sigma_raw")) %>%
+  mutate(
+    # Transform raw estimates back to behavioral scale
+    estimated_val = case_when(
+      variable == "mu_v_raw" ~ exp(mean),
+      variable == "mu_gamma_raw" ~ plogis(mean),
+      variable == "mu_sigma_raw" ~ exp(mean)
+    ),
+    true_val = case_when(
+      variable == "mu_v_raw" ~ true_v_val,
+      variable == "mu_gamma_raw" ~ mean(sub_traits$true_gamma_sub),
+      variable == "mu_sigma_raw" ~ true_sigma_val
+    )
+  ) %>%
+  select(variable, true_val, estimated_val, q5, q95)
+
+cat("\n--- Group-Level Recovery ---\n")
+print(group_summary)
+
+# --- 2. Extract Subject-Level Parameters ---
+# Get individual Nu (v) and Gamma
+sub_estimates <- fit$draws(c("v", "gamma")) %>%
+  as_draws_df() %>%
+  summarise(across(starts_with(c("v[", "gamma[")), mean)) %>%
+  pivot_longer(everything(), names_to = "param_raw", values_to = "estimated") %>%
+  mutate(
+    parameter = gsub("\\[.*", "", param_raw),
+    subject_id = as.numeric(gsub(".*\\[|\\].*", "", param_raw))
+  )
+
+# Join with Ground Truth Traits
+recovery_data <- sub_estimates %>%
+  left_join(sub_traits %>% rename(gamma = true_gamma_sub), by = "subject_id") %>%
+  mutate(truth = ifelse(parameter == "gamma", gamma, true_v_val))
+
+# --- 3. Visualize Multi-Panel Recovery Plot ---
+ggplot(recovery_data, aes(x = truth, y = estimated)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  geom_point(alpha = 0.6, color = "midnightblue") +
+  geom_smooth(method = "lm", color = "black", size = 0.5, se = FALSE) +
+  facet_wrap(~parameter, scales = "free") +
+  labs(
+    title = "Subject-Level Parameter Recovery",
+    subtitle = "Red dashed line = Perfect Recovery (1:1)",
+    x = "Simulated Ground Truth",
+    y = "Posterior Mean Estimate"
+  ) +
+  theme_minimal()
+
+
+recovery_metrics <- recovery_data %>%
+  group_by(parameter) %>%
+  summarise(
+    Correlation = cor(truth, estimated),
+    MAE = mean(abs(truth - estimated)),
+    RMSE = sqrt(mean((truth - estimated)^2))
+  )
+
+cat("\n--- Recovery Performance Metrics ---\n")
+print(recovery_metrics)
+
 # Extract draws
-draws <- fit$draws(c("gamma", "v")) %>% as_draws_df()
+# draws <- fit$draws(c("gamma", "v")) %>% as_draws_df()
 
 # Plot Subject-Level Gamma Recovery
 plot_gamma_performance(fit, processed_data)
 
 preds <- predict_glam(fit, processed_data, n_sims = 5)
-
 plot_glam_fit(processed_data, preds) +
   labs(title = "Recovered RT Distribution",
        subtitle = "Model reproduces the RT peak at Delta Value = 0")

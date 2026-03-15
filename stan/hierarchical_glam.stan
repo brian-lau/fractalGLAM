@@ -44,28 +44,6 @@ transformed parameters {
   }
 }
 
-/*model {
-  mu_v_raw ~ normal(0, 1);
-  mu_gamma_raw ~ normal(0, 1);
-  mu_sigma_raw ~ normal(0, 1);
-  mu_s_raw ~ normal(-8, 1);
-  tau ~ cauchy(0, 2.5);
-  
-  v_offset ~ std_normal();
-  gamma_offset ~ std_normal();
-  sigma_offset ~ std_normal();
-  s_offset ~ std_normal();
-
-  for (n in 1:N) {
-    int sj = subject[n];
-    real drift = glam_drift(v_right[n], v_left[n], g_right[n], g_left[n], gamma[sj], v[sj], s[sj]);
-    //rt[n] ~ normal(1.0 / drift, sigma[sj]); 
-    // Log-normal is often more stable for RT than normal(1/drift) in VB
-    rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 
-    choice[n] ~ bernoulli_logit(drift); 
-  }
-}*/
-
 model {
   // Priors: Adjusted for better recovery
   mu_v_raw ~ normal(1, 0.5);       // Pull mu_v slightly higher
@@ -79,17 +57,6 @@ model {
   gamma_offset ~ std_normal();
   sigma_offset ~ std_normal();
   s_offset ~ std_normal();
-
-/*  for (n in 1:N) {
-    int sj = subject[n];
-    real drift = glam_drift(v_right[n], v_left[n], g_right[n], g_left[n], 
-                                     gamma[sj], v[sj], s[sj]);
-    
-    // Likelihood: Using lognormal for RT stability
-    rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 
-    // Choice: Using bernoulli with the drift-based probability
-    choice[n] ~ bernoulli(inv_logit(drift * 100)); // Magnify signal for choice sensitivity
-  }*/
   
   for (n in 1:N) {
     int sj = subject[n];
@@ -98,11 +65,17 @@ model {
     real signal = (v_right[n] * (g_right[n] + gamma[sj] * g_left[n])) - 
     (v_left[n] * (g_left[n] + gamma[sj] * g_right[n]));
     
-    // Calculate magnitude-based drift for RT
-    real drift = v[sj] * s[sj] * (abs(signal) + 0.01);
+    // // Calculate magnitude-based drift for RT
+    // real drift = v[sj] * s[sj] * (abs(signal) + 0.01);
+    // 
+    // // Ensure drift is never exactly zero
+    // if (drift <= 0) drift = 1e-9;
+    // 1. Calculate raw drift
+    real drift_raw = v[sj] * s[sj] * (abs(signal) + 0.01);
     
-    // Ensure drift is never exactly zero
-    if (drift <= 0) drift = 1e-9;
+    // 2. FORCE a minimum drift for numerical stability
+    // 1e-7 ensures log(1/drift) never exceeds ~16
+    real drift = fmax(drift_raw, 1e-7);
 
     // Likelihoods
     rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 

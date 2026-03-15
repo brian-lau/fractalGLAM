@@ -32,14 +32,16 @@ plot_gamma_performance <- function(fit, data) {
     ggplot2::geom_point(ggplot2::aes(color = factor(.data$subject_id)), size = 3) +
     ggplot2::theme_minimal()
 }
-Plot Predicted vs Observed Psychometric Functions}
+Plot Binned RT Fit Comparison}
 \usage{
-plot_glam_fit(observed, predicted)
+plot_glam_fit(observed, predicted, n_bins = 10)
 }
 \arguments{
-\item{observed}{Data frame of observed data.}
+\item{observed}{Prepared data frame of actual trials.}
 
-\item{predicted}{Data frame of predicted data.}
+\item{predicted}{Data frame of simulations from predict_glam.}
+
+\item{n_bins}{Number of bins for the delta_v axis.}
 }
 \description{
 #' Plot Individual Gamma Estimates vs. Choice Slope
@@ -72,5 +74,5 @@ plot_gamma_performance <- function(fit, data) {
     ggplot2::geom_point(ggplot2::aes(color = factor(.data$subject_id)), size = 3) +
     ggplot2::theme_minimal()
 }
-Plot Predicted vs Observed Psychometric Functions
+Plot Binned RT Fit Comparison
 }

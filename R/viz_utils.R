@@ -202,28 +202,61 @@ plot_gamma_performance <- function(fit, data) {
 #'     ggplot2::theme_minimal()
 #' }
 
-#' Plot Predicted vs Observed Psychometric Functions
+#' Plot Binned RT Fit Comparison
 #' 
-#' @param observed Data frame of observed data.
-#' @param predicted Data frame of predicted data.
+#' @param observed Prepared data frame of actual trials.
+#' @param predicted Data frame of simulations from predict_glam.
+#' @param n_bins Number of bins for the delta_v axis.
+#' @importFrom ggplot2 ggplot aes geom_line geom_point labs theme_minimal
+#' @importFrom dplyr mutate group_by summarise n
 #' @export
-plot_glam_fit <- function(observed, predicted) {
-  delta_val <- rt <- pred_rt <- type <- value_right <- value_left <- NULL
+plot_glam_fit <- function(observed, predicted, n_bins = 10) {
+  delta_val <- rt <- type <- NULL
   
-  rt_obs <- observed %>%
-    dplyr::mutate(delta_val = .data$value_right - .data$value_left) %>%
-    dplyr::group_by(.data$delta_val) %>%
-    dplyr::summarise(rt = mean(.data$rt), type = "Observed")
+  # 1. Standardize observed data
+  obs_clean <- observed %>%
+    dplyr::mutate(
+      delta_val = .data$value_right - .data$value_left,
+      type = "Observed"
+    ) %>%
+    dplyr::select(delta_val, rt, type)
   
-  rt_pred <- predicted %>%
-    dplyr::mutate(delta_val = .data$value_right - .data$value_left) %>%
-    dplyr::group_by(.data$delta_val) %>%
-    dplyr::summarise(rt = mean(.data$pred_rt), type = "Predicted")
+  # 2. Standardize predicted data (using pred_rt)
+  pred_clean <- predicted %>%
+    dplyr::mutate(
+      delta_val = .data$value_right - .data$value_left,
+      rt = .data$pred_rt,
+      type = "Predicted"
+    ) %>%
+    dplyr::select(delta_val, rt, type)
   
-  dplyr::bind_rows(rt_obs, rt_pred) %>%
-    ggplot2::ggplot(ggplot2::aes(x = .data$delta_val, y = .data$rt, color = .data$type)) +
-    ggplot2::geom_line(linewidth = 1) +
-    ggplot2::geom_point() +
+  # 3. Combine and Bin
+  combined <- rbind(obs_clean, pred_clean) %>%
+    dplyr::mutate(
+      # Create discrete bins for Delta V
+      bin = cut(delta_val, breaks = n_bins)
+    ) %>%
+    dplyr::group_by(bin, type) %>%
+    dplyr::summarise(
+      # Calculate the mean Delta V and Mean RT for each bin
+      m_delta = mean(delta_val),
+      m_rt = mean(rt),
+      se_rt = sd(rt) / sqrt(dplyr::n()),
+      .groups = "drop"
+    )
+  
+  # 4. Plot Binned Means
+  ggplot2::ggplot(combined, ggplot2::aes(x = m_delta, y = m_rt, color = type, group = type)) +
+    ggplot2::geom_line(size = 1.2) +
+    ggplot2::geom_point(size = 3) +
+    ggplot2::geom_errorbar(ggplot2::aes(ymin = m_rt - se_rt, ymax = m_rt + se_rt), width = 0.2) +
+    ggplot2::labs(
+      title = "Binned RT Posterior Predictive Check",
+      subtitle = paste0("Comparison across ", n_bins, " Delta-Value bins"),
+      x = "Value Difference (Right - Left)",
+      y = "Mean Response Time (ms)",
+      color = "Data Type"
+    ) +
     ggplot2::theme_minimal()
 }
 

@@ -37,13 +37,19 @@ predict_glam <- function(fit, newdata, n_sims = 10, type = "mean") {
     dplyr::left_join(param_summary, by = "subject_id") %>%
     dplyr::slice(rep(1:dplyr::n(), each = n_sims)) %>%
     mutate(
-      # Recalculate signal using estimated gamma
+      # 1. Recalculate signal using estimated gamma
       signal = (.data$value_right * (.data$gaze_right + .data$gamma * .data$gaze_left)) - 
         (.data$value_left * (.data$gaze_left + .data$gamma * .data$gaze_right)),
-      # Calculate drift based on estimated v and s
-      drift = .data$v * .data$s * (1 / (1 + exp(-.data$signal))),
-      # Simulate outcomes
-      pred_choice = stats::rbinom(dplyr::n(), 1, stats::plogis(.data$drift * 500)), # Matching Stan scale
+      
+      # 2. Decision Drift (Nu * S * Magnitude)
+      # FIX: Use the magnitude logic to recreate the 'hump'
+      drift_raw = .data$v * .data$s * (abs(.data$signal) + 0.01),
+      drift = pmax(drift_raw, 1e-7), # Match the 'fmax' floor in Stan
+      
+      # 3. Simulate outcomes
+      # Choice follows the raw signal sign
+      pred_choice = stats::rbinom(dplyr::n(), 1, stats::plogis(.data$signal * 0.5)), 
+      # RT follows the drift magnitude
       pred_rt = stats::rlnorm(dplyr::n(), log(1 / .data$drift), .data$sigma)
     )
   
