@@ -1,0 +1,174 @@
+---
+title: "GLAM Parameter Recovery"
+author: "Collaborative AI"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{GLAM Parameter Recovery}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+
+library(fractalGLAM)
+library(tidyverse)
+library(cmdstanr)
+library(bayesplot)
+library(posterior)
+
+# Ensure CmdStan is available for the vignette build process
+tryCatch({
+  cmdstanr::cmdstan_path()
+}, error = function(e) {
+  cmdstanr::set_cmdstan_path()
+})
+# Simply attempt to find the path. If it fails, fit_glam will catch it.
+# try(cmdstanr::cmdstan_path(), silent = TRUE)
+
+# 1. Simulate Synthetic Data
+set.seed(42)
+n_subs <- 50
+n_trials <- 200
+
+# 1. Create individual differences in Gamma
+# We sample a different 'true gamma' for each person
+sub_traits <- tibble(
+  subject_id = 1:n_subs,
+  true_gamma_sub = runif(n_subs, 0.0, 1.0)
+)
+
+sim_data <- expand.grid(subject_id = 1:n_subs, trial = 1:n_trials) %>%
+  left_join(sub_traits, by = "subject_id") %>%
+  mutate(
+    value_left = rnorm(n(), 0, 1),
+    value_right = rnorm(n(), 0, 1),
+    gaze_left = runif(n(), 0.1, 0.9),
+    gaze_right = 1 - gaze_left,
+    v_l_scaled = scales::rescale(value_left, to = c(1, 10)),
+    v_r_scaled = scales::rescale(value_right, to = c(1, 10))
+  ) %>%
+  mutate(
+    # 1. Calculate the raw GLAM signal
+    signal = (v_r_scaled * (gaze_right + true_gamma_sub * gaze_left)) - 
+             (v_l_scaled * (gaze_left + true_gamma_sub * gaze_right)),
+    
+    # 2. Choice probability (Sigmoid is correct here)
+    prob_right = plogis(signal * 0.5), 
+    choice = rbinom(n(), 1, prob_right),
+    
+    # 3. RT Drift Magnitude (The Fix)
+    # RT should be high when signal is near 0. 
+    # We use a 'minimum drift' floor (0.01) to avoid infinite RTs.
+    drift_mag = abs(signal) + 0.01,
+    
+    # 4. Generate RT: Scale it so that small drift_mag = Large RT
+    # 1/drift_mag creates the hump at signal = 0
+    rt = rlnorm(n(), log(5 / drift_mag), 0.2) 
+  )
+# set.seed(123)
+# n_subs <- 50
+# n_trials <- 200
+# 
+# # True parameters for recovery
+# true_gamma_val <- 0.3
+# true_v_val <- 1.5
+# s_const <- 3e-4
+# 
+# sim_data <- expand.grid(subject_id = 1:n_subs, trial = 1:n_trials) %>%
+#   mutate(
+#     # Simulate Z-scored ratings
+#     value_left = rnorm(n(), 0, 1),
+#     value_right = rnorm(n(), 0, 1),
+#     # Simulate random gaze distribution
+#     gaze_left = runif(n(), 0.1, 0.9),
+#     gaze_right = 1 - gaze_left,
+#     # Map to 1-10 range as done in prep_glam_data
+#     v_l_scaled = scales::rescale(value_left, to = c(1, 10)),
+#     v_r_scaled = scales::rescale(value_right, to = c(1, 10))
+#   ) 
+# sim_data <- sim_data %>%
+#   mutate(
+#     signal = (v_r_scaled * (gaze_right + true_gamma_val * gaze_left)) - 
+#              (v_l_scaled * (gaze_left + true_gamma_val * gaze_right)),
+#     
+#     # 1. Drift for RT (uses the tiny s_const)
+#     drift = true_v_val * s_const * (1 / (1 + exp(-signal))),
+#     
+#     # 2. Choice Probability (needs a larger scale to be 'behavioral')
+#     # We use signal * 0.5 to make choices deterministic enough to show a slope
+#     prob_right = plogis(signal * 0.5), 
+#     choice = rbinom(n(), 1, prob_right),
+#     
+#     # 3. RT remains the same
+#     rt = rlnorm(n(), log(1 / drift), 0.2)
+#   )
+
+# %>%
+#   mutate(
+#     # Generative GLAM Signal
+#     # r = (v_r * (g_r + gamma * g_l)) - (v_l * (g_l + gamma * g_r))
+#     signal = (v_r_scaled * (gaze_right + true_gamma_val * gaze_left)) - 
+#              (v_l_scaled * (gaze_left + true_gamma_val * gaze_right)),
+#     # Drift rate = v * s * sigmoid(signal)
+#     drift = true_v_val * s_const * (1 / (1 + exp(-signal))),
+#     # Generate Choice (Bernoulli)
+#     choice = rbinom(n(), 1, plogis(drift)),
+#     # Generate RT (Log-normal to match our likelihood)
+#     rt = rlnorm(n(), log(1 / drift), 0.2)
+#   )
+
+# Preview simulated data
+head(sim_data)
+
+# 2. Fit Model
+# Preprocess
+processed_data <- prep_glam_data(sim_data)
+
+# Fit using VB
+fit <- fit_glam(
+  processed_data, 
+  method = "meanfield", 
+  iter = 20000, 
+  s_val = s_const,
+# Initialize near the group means to avoid the -inf crash
+  init = 0.1#, 
+)
+# 
+# mcmc_fit <- fit_glam(
+#   processed_data %>% filter(subject_id == 1), 
+#   method = "sample", 
+#   iter_warmup = 500, 
+#   iter_sampling = 500, 
+#   chains = 2
+# )
+
+# mcmc_fit <- fit_glam(
+#   processed_data, 
+#   method = "sample",
+#   chains = 2,
+#   iter_warmup = 1000,
+#   iter_sampling = 1000,
+#   # These control the sampler efficiency
+#   max_treedepth = 12,    # Increased from default 10
+#   adapt_delta = 0.95     # Increased from default 0.80
+# )
+
+# 3. Verify Gamma Recovery
+# Extract draws
+draws <- fit$draws(c("gamma", "v")) %>% as_draws_df()
+
+# Plot Subject-Level Gamma Recovery
+plot_gamma_performance(fit, processed_data)
+
+preds <- predict_glam(fit, processed_data, n_sims = 5)
+
+plot_glam_fit(processed_data, preds) +
+  labs(title = "Recovered RT Distribution",
+       subtitle = "Model reproduces the RT peak at Delta Value = 0")
