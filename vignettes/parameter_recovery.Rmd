@@ -111,7 +111,6 @@ fit <- fit_glam(
 # )
 
 # 3. Verify Parameter Recovery
-library(tidyverse)
 library(posterior)
 
 # --- 1. Extract Group-Level Means (Behavioral Scale) ---
@@ -264,6 +263,6 @@ ggplot(plot_subset, aes(x = delta_val, y = rt, color = type)) +
   theme_minimal()
 
 preds <- predict_glam(fit, processed_data, n_sims = 5)
-plot_glam_fit(processed_data, preds) +
+plot_rt_fit(processed_data, preds) +
   labs(title = "Recovered RT Distribution",
        subtitle = "Model reproduces the RT peak at Delta Value = 0")

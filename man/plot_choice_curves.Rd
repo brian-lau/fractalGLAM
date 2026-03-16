@@ -2,16 +2,14 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_choice_curves}
 \alias{plot_choice_curves}
-\title{Plot Choice Psychometric Curves}
+\title{Plot N-Item Choice Psychometric Curves}
 \usage{
-plot_choice_curves(data, bin_gaze = FALSE)
+plot_choice_curves(data)
 }
 \arguments{
 \item{data}{Prepared data frame (observed or predicted).}
-
-\item{bin_gaze}{Logical. If TRUE, splits curves by gaze advantage.}
 }
 \description{
-Visualizes the probability of choosing the right item as a function of 
-the value difference, optionally split by gaze advantage.
+Visualizes the probability of choosing each item as a function of its 
+relative value (Value_i - max(Value_others)).
 }

@@ -2,20 +2,16 @@
 % Please edit documentation in R/data_prep.R
 \name{prep_glam_data}
 \alias{prep_glam_data}
-\title{Prepare Trial Data for GLAM}
+\title{Prepare N-Item Trial Data for GLAM}
 \usage{
 prep_glam_data(df, scale_range = c(1, 10))
 }
 \arguments{
-\item{df}{A data frame containing trial data. Must include: subject_id, rt, 
-choice, value_left, value_right, gaze_left, gaze_right.}
+\item{df}{Data frame containing subject_id, rt, choice, and item columns.}
 
-\item{scale_range}{Numeric vector of length 2. The GLAM typically requires 
-positive values (e.g., 1 to 10) to define the drift rate.}
+\item{scale_range}{Numeric vector of length 2 for value rescaling.}
 }
 \description{
-This function performs essential cleaning and normalization required by the 
-Gaze-weighted Linear Accumulator Model. It validates that values are Z-scored,
-rescales them to a positive range for the drift process, and ensures gaze
-proportions sum to 1.
+Generalizes preprocessing for an arbitrary number of items. Detects item
+columns based on naming patterns (v_0, v_1... and g_0, g_1...).
 }

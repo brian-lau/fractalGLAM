@@ -2,7 +2,7 @@
 % Please edit documentation in R/predict_glam.R
 \name{predict_glam}
 \alias{predict_glam}
-\title{Generate Predictions from a Fitted GLAM}
+\title{Generate Predictions from an N-Item Fitted GLAM}
 \usage{
 predict_glam(fit, newdata, n_sims = 10, type = "mean")
 }
@@ -13,12 +13,9 @@ predict_glam(fit, newdata, n_sims = 10, type = "mean")
 
 \item{n_sims}{Number of simulations per trial.}
 
-\item{type}{Character, either "mean" to use posterior means or 
-"posterior" to sample from the full posterior distribution.}
+\item{type}{Character, "mean" to use posterior means or "posterior" to sample.}
 }
 \description{
-This function generates simulated choices and response times using the 
-parameters estimated by a GLAM fit. It can use either the posterior means 
-for a point-estimate prediction or sample from the full posterior 
-distribution to capture model uncertainty.
+Simulates a stochastic race between K accumulators for each trial using
+the logistic drift mapping and Wiener process logic.
 }

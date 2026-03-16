@@ -2,18 +2,17 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_rt_fit}
 \alias{plot_rt_fit}
-\title{Plot Binned RT Fit Comparison (Posterior Predictive Check)}
+\title{Plot Binned RT Fit Comparison (N-Item Race)}
 \usage{
-plot_rt_fit(observed, predicted, n_bins = 10)
+plot_rt_fit(observed, predicted, n_bins = 15)
 }
 \arguments{
 \item{observed}{Prepared data frame of actual trials.}
 
 \item{predicted}{Data frame of simulations from \code{predict_glam}.}
 
-\item{n_bins}{Number of bins for the delta_v axis.}
+\item{n_bins}{Number of bins for the RT distribution.}
 }
 \description{
-A high-level diagnostic plot that bins trials by value difference to compare 
-observed RT 'humps' against model predictions.
+Plot Binned RT Fit Comparison (N-Item Race)
 }

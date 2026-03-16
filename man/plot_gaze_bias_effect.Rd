@@ -2,7 +2,7 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_gaze_bias_effect}
 \alias{plot_gaze_bias_effect}
-\title{Visualize Gaze Bias Effect}
+\title{Visualize Gaze Bias Effect (N-Item)}
 \usage{
 plot_gaze_bias_effect(data)
 }
@@ -10,5 +10,5 @@ plot_gaze_bias_effect(data)
 \item{data}{Prepared data frame.}
 }
 \description{
-Visualize Gaze Bias Effect
+Visualize Gaze Bias Effect (N-Item)
 }

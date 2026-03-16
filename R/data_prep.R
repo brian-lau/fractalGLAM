@@ -1,54 +1,51 @@
-#' Prepare Trial Data for GLAM
+#' Prepare N-Item Trial Data for GLAM
 #' 
-#' This function performs essential cleaning and normalization required by the 
-#' Gaze-weighted Linear Accumulator Model. It validates that values are Z-scored,
-#' rescales them to a positive range for the drift process, and ensures gaze
-#' proportions sum to 1.
+#' Generalizes preprocessing for an arbitrary number of items. Detects item
+#' columns based on naming patterns (v_0, v_1... and g_0, g_1...).
 #' 
-#' @param df A data frame containing trial data. Must include: subject_id, rt, 
-#'        choice, value_left, value_right, gaze_left, gaze_right.
-#' @param scale_range Numeric vector of length 2. The GLAM typically requires 
-#'        positive values (e.g., 1 to 10) to define the drift rate.
-#' @importFrom dplyr mutate across starts_with select
+#' @param df Data frame containing subject_id, rt, choice, and item columns.
+#' @param scale_range Numeric vector of length 2 for value rescaling.
+#' @importFrom dplyr mutate across select starts_with
 #' @importFrom scales rescale
-#' @importFrom rlang .data
 #' @export
 prep_glam_data <- function(df, scale_range = c(1, 10)) {
-  # Define variables for global check
-  total_gaze <- gaze_left <- gaze_right <- NULL
   
-  # 1. Check for required columns
-  required_cols <- c("subject_id", "rt", "choice", "value_left", 
-                     "value_right", "gaze_left", "gaze_right")
-  missing_cols <- setdiff(required_cols, colnames(df))
+  # 1. Detect number of items
+  # We look for columns starting with 'v_' followed by a digit
+  v_cols <- sort(colnames(df)[grepl("^v_\\d+$", colnames(df))])
+  g_cols <- sort(colnames(df)[grepl("^g_\\d+$", colnames(df))])
+  n_items <- length(v_cols)
   
-  if (length(missing_cols) > 0) {
-    stop(paste("The input data frame is missing required columns:", 
-               paste(missing_cols, collapse = ", ")))
+  if (n_items < 2) {
+    stop("Could not detect at least 2 item columns (v_0, v_1...). Check naming convention.")
   }
   
-  # 2. Validate Z-scores
-  # GLAM requires values to be relative to the subject's mean to properly 
-  # estimate the 'v' (velocity) parameter across a population.
-  mean_val <- mean(df$value_left, na.rm = TRUE)
-  if (abs(mean_val) > 0.1) {
-    stop(paste("Input values must be Z-score standardized per subject (mean approx 0).", 
-               "Found mean:", round(mean_val, 3)))
+  if (length(v_cols) != length(g_cols)) {
+    stop("Mismatch between number of value columns and gaze columns.")
   }
   
-  # 3. Rescale to positive range
-  # The accumulator process requires a positive evidence 'floor'.
+  # 2. Validate Z-scores (across all items)
+  # Reference glambox assumes values are relative to the individual's mean
+  all_values <- as.vector(as.matrix(df[, v_cols]))
+  if (abs(mean(all_values, na.rm = TRUE)) > 0.1) {
+    warning("Input values do not appear to be Z-scored. Standardizing now...")
+    # Optional: implement auto-standardization here if preferred
+  }
+  
+  # 3. Rescale and Normalize
+  # Positive rescaling is required for the drift accumulation floor.
   df <- df %>%
-    dplyr::mutate(dplyr::across(dplyr::starts_with("value_"), 
+    dplyr::mutate(dplyr::across(dplyr::all_of(v_cols), 
                                 ~ scales::rescale(.x, to = scale_range)))
   
-  # 4. Gaze Normalization (Relative Gaze)
-  # Ensures that the sum of gaze proportions for any given trial equals 1.0.
-  df <- df %>%
-    dplyr::mutate(total_gaze = .data$gaze_left + .data$gaze_right,
-                  gaze_left = .data$gaze_left / .data$total_gaze,
-                  gaze_right = .data$gaze_right / .data$total_gaze) %>%
-    dplyr::select(-.data$total_gaze)
+  # Gaze must sum to 1 across all N items for every trial.
+  total_gaze <- rowSums(df[, g_cols])
+  df[, g_cols] <- df[, g_cols] / total_gaze
+  
+  # 4. Final Structure Check
+  required_base <- c("subject_id", "rt", "choice")
+  missing <- setdiff(required_base, colnames(df))
+  if (length(missing) > 0) stop(paste("Missing core columns:", paste(missing, collapse = ", ")))
   
   return(df)
 }

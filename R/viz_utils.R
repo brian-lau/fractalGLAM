@@ -1,6 +1,5 @@
 #' @import ggplot2
 #' @import dplyr
-#' @importFrom stats glm coef
 #' @importFrom rlang .data
 NULL
 
@@ -15,178 +14,100 @@ theme_glam <- function() {
     )
 }
 
-#' Plot Choice Psychometric Curves
+#' Plot N-Item Choice Psychometric Curves
 #' 
-#' Visualizes the probability of choosing the right item as a function of 
-#' the value difference, optionally split by gaze advantage.
+#' Visualizes the probability of choosing each item as a function of its 
+#' relative value (Value_i - max(Value_others)).
 #' 
 #' @param data Prepared data frame (observed or predicted).
-#' @param bin_gaze Logical. If TRUE, splits curves by gaze advantage.
 #' @export
-plot_choice_curves <- function(data, bin_gaze = FALSE) {
-  delta_v <- choice <- gaze_diff <- gaze_bin <- subject_id <- NULL
+plot_choice_curves <- function(data) {
+  # Identify item columns
+  v_cols <- sort(colnames(data)[grepl("^v_\\d+$", colnames(data))])
+  K <- length(v_cols)
   
-  plot_df <- data %>%
-    dplyr::mutate(
-      delta_v = .data$value_right - .data$value_left,
-      gaze_diff = .data$gaze_right - .data$gaze_left
+  # Calculate relative values for each item
+  plot_list <- lapply(1:K, function(k) {
+    this_v <- data[[v_cols[k]]]
+    other_v <- apply(data[, v_cols[-k]], 1, max)
+    
+    data.frame(
+      subject_id = data$subject_id,
+      rel_value = this_v - other_v,
+      chosen = as.numeric(data$choice == k),
+      item = paste0("Item ", k-1)
     )
+  })
   
-  if (bin_gaze) {
-    plot_df <- plot_df %>%
-      dplyr::mutate(gaze_bin = ifelse(gaze_diff > 0, "Gaze Right", "Gaze Left"))
-    p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = delta_v, y = choice, color = gaze_bin))
-  } else {
-    p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = delta_v, y = choice))
-  }
+  plot_df <- dplyr::bind_rows(plot_list)
   
-  p + ggplot2::geom_smooth(method = "glm", method.args = list(family = "binomial"), 
-                           se = TRUE, alpha = 0.2) +
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$rel_value, y = .data$chosen, color = .data$item)) +
+    ggplot2::geom_smooth(method = "glm", method.args = list(family = "binomial"), 
+                         se = TRUE, alpha = 0.1) +
     ggplot2::scale_color_brewer(palette = "Set1") +
-    ggplot2::labs(x = "Value Difference (R - L)", y = "Pr(Choose Right)",
-                  title = "Choice Psychometric Function") +
+    ggplot2::labs(x = "Relative Value (Item_i - max_others)", y = "Pr(Choice)",
+                  title = "Multinomial Choice Functions",
+                  color = "Option") +
     theme_glam() +
     ggplot2::facet_wrap(~subject_id)
 }
 
-#' Plot RT Chronometric Curves
-#' 
-#' @param data Prepared data frame (usually predictions).
-#' @param observed_data Optional. The raw data frame used for fitting.
-#' @param bin_gaze Logical. If TRUE, splits curves by gaze advantage.
-#' @export
-plot_rt_curves <- function(data, observed_data = NULL, bin_gaze = FALSE) {
-  delta_v <- rt <- gaze_diff <- gaze_bin <- subject_id <- type <- NULL
-  rt_col <- if ("pred_rt" %in% colnames(data)) "pred_rt" else "rt"
-  
-  plot_df <- data %>%
-    dplyr::mutate(
-      delta_v = .data$value_right - .data$value_left,
-      gaze_diff = .data$gaze_right - .data$gaze_left
-    )
-  
-  if (bin_gaze) {
-    plot_df <- plot_df %>%
-      dplyr::mutate(gaze_bin = ifelse(gaze_diff > 0, "Gaze Right", "Gaze Left"))
-    p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = delta_v, y = .data[[rt_col]], color = gaze_bin))
-  } else {
-    p <- ggplot2::ggplot(plot_df, ggplot2::aes(x = delta_v, y = .data[[rt_col]]))
-  }
-  
-  if (!is.null(observed_data)) {
-    obs_df <- observed_data %>% dplyr::mutate(delta_v = .data$value_right - .data$value_left)
-    p <- p + ggplot2::geom_point(data = obs_df, ggplot2::aes(x = delta_v, y = rt), 
-                                 alpha = 0.2, size = 1, inherit.aes = FALSE, color = "grey50")
-  }
-  
-  p + ggplot2::geom_smooth(method = "loess", se = TRUE, size = 1.2) +
-    ggplot2::scale_color_brewer(palette = "Set1") +
-    ggplot2::labs(x = "Value Difference (R - L)", y = "Response Time (ms)",
-                  title = "RT Chronometric Function") +
-    theme_glam() +
-    ggplot2::facet_wrap(~subject_id, scales = "free_y")
-}
-
-#' Plot Binned RT Fit Comparison (Posterior Predictive Check)
-#' 
-#' A high-level diagnostic plot that bins trials by value difference to compare 
-#' observed RT 'humps' against model predictions.
+#' Plot Binned RT Fit Comparison (N-Item Race)
 #' 
 #' @param observed Prepared data frame of actual trials.
 #' @param predicted Data frame of simulations from \code{predict_glam}.
-#' @param n_bins Number of bins for the delta_v axis.
+#' @param n_bins Number of bins for the RT distribution.
 #' @export
-plot_rt_fit <- function(observed, predicted, n_bins = 10) {
-  delta_val <- rt <- type <- m_delta <- m_rt <- se_rt <- bin <- NULL
+plot_rt_fit <- function(observed, predicted, n_bins = 15) {
+  type <- rt <- m_rt <- se_rt <- NULL
   
-  obs_clean <- observed %>% 
-    dplyr::mutate(delta_val = .data$value_right - .data$value_left, type = "Observed")
+  obs_clean <- observed %>% dplyr::mutate(type = "Observed")
   
   rt_col <- if ("pred_rt" %in% colnames(predicted)) "pred_rt" else "rt"
   pred_clean <- predicted %>% 
-    dplyr::mutate(delta_val = .data$value_right - .data$value_left, 
-                  rt = .data[[rt_col]], type = "Predicted")
+    dplyr::mutate(rt = .data[[rt_col]], type = "Predicted")
   
   combined <- dplyr::bind_rows(
-    dplyr::select(obs_clean, delta_val, rt, type),
-    dplyr::select(pred_clean, delta_val, rt, type)
-  ) %>%
-    dplyr::mutate(bin = ggplot2::cut_number(delta_val, n_bins)) %>%
-    dplyr::group_by(bin, type) %>%
-    dplyr::summarise(m_delta = mean(delta_val), m_rt = mean(rt),
-                     se_rt = sd(rt) / sqrt(dplyr::n()), .groups = "drop")
+    dplyr::select(obs_clean, rt, type),
+    dplyr::select(pred_clean, rt, type)
+  )
   
-  ggplot2::ggplot(combined, ggplot2::aes(x = m_delta, y = m_rt, color = type, group = type)) +
-    ggplot2::geom_errorbar(ggplot2::aes(ymin = m_rt - se_rt, ymax = m_rt + se_rt), width = 0.1) +
-    ggplot2::geom_line(size = 1) +
-    ggplot2::geom_point(size = 2) +
-    ggplot2::scale_color_manual(values = c("Observed" = "#E41A1C", "Predicted" = "#377EB8")) +
-    ggplot2::labs(x = "Value Difference (R - L)", y = "Mean RT (ms)",
-                  title = "Binned RT Posterior Predictive Check") +
+  ggplot2::ggplot(combined, ggplot2::aes(x = rt, fill = type)) +
+    ggplot2::geom_histogram(ggplot2::aes(y = ggplot2::after_stat(density)), 
+                            bins = n_bins, alpha = 0.5, position = "identity") +
+    ggplot2::geom_density(alpha = 0.2) +
+    ggplot2::scale_fill_manual(values = c("Observed" = "#E41A1C", "Predicted" = "#377EB8")) +
+    ggplot2::labs(x = "Response Time (s)", y = "Density",
+                  title = "RT Posterior Predictive Check",
+                  subtitle = "Race Model Predicted vs. Observed Densities") +
     theme_glam()
 }
 
-#' Plot Individual Gamma Estimates vs. Choice Slope
-#' 
-#' @param fit A cmdstanr fit object.
-#' @param data The prepared data frame used for fitting.
-#' @export
-plot_gamma_performance <- function(fit, data) {
-  gamma_est <- slope <- subject_id <- subject_idx <- delta_v <- gaze_diff <- NULL
-  
-  draws <- fit$draws("gamma") %>% 
-    posterior::as_draws_df() %>%
-    dplyr::summarise(dplyr::across(dplyr::starts_with("gamma["), mean)) %>%
-    tidyr::pivot_longer(dplyr::everything(), names_to = "raw", values_to = "gamma_est") %>%
-    dplyr::mutate(subject_idx = as.numeric(gsub(".*\\[|\\].*", "", .data$raw)))
-  
-  slopes <- data %>%
-    dplyr::mutate(delta_v = .data$value_right - .data$value_left,
-                  gaze_diff = .data$gaze_right - .data$gaze_left) %>%
-    dplyr::group_by(.data$subject_id) %>%
-    dplyr::summarise(
-      slope = stats::coef(stats::glm(choice ~ base::scale(gaze_diff) + base::scale(delta_v), 
-                                     family = "binomial"))[2]
-    ) %>%
-    dplyr::mutate(subject_idx = as.numeric(as.factor(.data$subject_id)))
-  
-  plot_df <- dplyr::left_join(slopes, draws, by = "subject_idx")
-  
-  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$gamma_est, y = .data$slope)) +
-    ggplot2::geom_smooth(method = "lm", color = "black", alpha = 0.2, linetype = "dashed") +
-    ggplot2::geom_point(ggplot2::aes(color = factor(.data$subject_id)), size = 4) +
-    ggplot2::labs(x = "Model Estimate (Gamma)", y = "Observed Gaze Bias Sensitivity",
-                  title = "Model Validation: Estimates vs. Behavior") +
-    theme_glam()
-}
-
-#' Visualize Gaze Bias Effect
+#' Visualize Gaze Bias Effect (N-Item)
 #'
 #' @param data Prepared data frame.
 #' @export
 plot_gaze_bias_effect <- function(data) {
-  gaze_diff <- val_diff <- val_bin <- choice <- NULL
-  data %>%
-    dplyr::mutate(
-      gaze_diff = .data$gaze_right - .data$gaze_left,
-      val_diff = .data$value_right - .data$value_left,
-      val_bin = ifelse(.data$val_diff > 0, "Right Higher Value", "Left Higher Value")
-    ) %>%
-    ggplot2::ggplot(ggplot2::aes(x = .data$gaze_diff, y = .data$choice, color = .data$val_bin)) +
-    ggplot2::geom_smooth(method = "glm", method.args = list(family = "binomial")) +
-    ggplot2::labs(x = "Gaze Difference (R - L)", y = "Pr(Choose Right)",
-                  title = "Behavioral Gaze Bias Effect") +
-    theme_glam()
-}
-
-#' Visualize Group-Level Parameter Posteriors
-#' 
-#' @param fit A cmdstanr fit object.
-#' @export
-plot_hierarchical_params <- function(fit) {
-  params <- c("mu_v_raw", "mu_gamma_raw", "mu_sigma_raw")
-  bayesplot::mcmc_areas(fit$draws(params), prob = 0.95) +
-    ggplot2::labs(title = "Group-Level Hyper-parameter Posteriors",
-                  subtitle = "95% Credible Intervals") +
+  # Using Gaze Advantage: Gaze_i - average(Gaze_others)
+  g_cols <- sort(colnames(data)[grepl("^g_\\d+$", colnames(data))])
+  K <- length(g_cols)
+  
+  plot_list <- lapply(1:K, function(k) {
+    this_g <- data[[g_cols[k]]]
+    other_g <- rowMeans(data[, g_cols[-k], drop = FALSE])
+    
+    data.frame(
+      gaze_adv = this_g - other_g,
+      chosen = as.numeric(data$choice == k),
+      item = paste0("Item ", k-1)
+    )
+  })
+  
+  plot_df <- dplyr::bind_rows(plot_list)
+  
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = .data$gaze_adv, y = .data$chosen)) +
+    ggplot2::geom_smooth(method = "glm", method.args = list(family = "binomial"), color = "black") +
+    ggplot2::labs(x = "Gaze Advantage (Item_i - mean_others)", y = "Pr(Choice)",
+                  title = "Attentional Bias Effect") +
     theme_glam()
 }
