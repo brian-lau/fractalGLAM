@@ -2,7 +2,7 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_hierarchical_params}
 \alias{plot_hierarchical_params}
-\title{Plot Hierarchical Parameter Posteriors}
+\title{Visualize Group-Level Parameter Posteriors}
 \usage{
 plot_hierarchical_params(fit)
 }
@@ -10,5 +10,5 @@ plot_hierarchical_params(fit)
 \item{fit}{A cmdstanr fit object.}
 }
 \description{
-Plot Hierarchical Parameter Posteriors
+Visualize Group-Level Parameter Posteriors
 }

@@ -30,15 +30,13 @@ tryCatch({
 }, error = function(e) {
   cmdstanr::set_cmdstan_path()
 })
-# Simply attempt to find the path. If it fails, fit_glam will catch it.
-# try(cmdstanr::cmdstan_path(), silent = TRUE)
 
 # 1. Simulate Synthetic Data
 set.seed(42)
 
 # Simulation Constants
-n_subs <- 50
-n_trials <- 200
+n_subs <- 10          # Number of subjects
+n_trials <- 200       # Number of trials per subject
 s_const <- 3e-4       # Scaling factor
 true_v_val <- 1.5     # Group velocity
 true_sigma_val <- 0.2 # Group noise
@@ -96,6 +94,7 @@ fit <- fit_glam(
   method = "meanfield", 
   iter = 20000, 
   s_val = s_const,
+  force_recompile = TRUE,
 # Initialize near the group means to avoid the -inf crash
   init = 0.1#, 
 )
@@ -179,9 +178,90 @@ print(recovery_metrics)
 
 # Extract draws
 # draws <- fit$draws(c("gamma", "v")) %>% as_draws_df()
+preds <- predict_glam(fit, processed_data, n_sims = 5)
 
 # Plot Subject-Level Gamma Recovery
 plot_gamma_performance(fit, processed_data)
+
+##
+# Extract Estimated Gammas from the MCMC fit
+est_gammas <- fit$summary("gamma") %>%
+  dplyr::mutate(
+    subject_id = as.numeric(gsub(".*\\[|\\].*", "", variable))
+  ) %>%
+  dplyr::select(subject_id, estimated_gamma = mean)
+
+# Combine with your simulation traits to see who is "High" vs "Low"
+recovery_df <- est_gammas %>%
+  dplyr::left_join(sub_traits, by = "subject_id")
+
+# 1. Join the estimated gammas into the prediction data
+preds_with_gamma <- preds %>%
+  dplyr::left_join(recovery_df, by = "subject_id")
+
+# 2. Identify the most biased (low gamma) and least biased (high gamma) subjects
+# (Using the recovery_df we created in the previous step)
+low_gamma_id  <- recovery_df %>% dplyr::arrange(estimated_gamma) %>% dplyr::slice(1) %>% dplyr::pull(subject_id)
+high_gamma_id <- recovery_df %>% dplyr::arrange(desc(estimated_gamma)) %>% dplyr::slice(1) %>% dplyr::pull(subject_id)
+
+# 3. Filter and Plot
+comp_plot_data <- preds_with_gamma %>%
+  dplyr::filter(subject_id %in% c(low_gamma_id, high_gamma_id)) %>%
+  dplyr::mutate(
+    delta_val = value_right - value_left,
+    # Now estimated_gamma exists here because of the join!
+    gamma_label = paste0("Subject ", subject_id, " (Gamma = ", round(estimated_gamma, 2), ")")
+  )
+
+ggplot(comp_plot_data, aes(x = delta_val, y = pred_rt)) +
+  geom_smooth(method = "loess", color = "midnightblue", size = 1.2) +
+  facet_wrap(~gamma_label, scales = "free_y") +
+  labs(
+    title = "How Gamma Affects the RT Hump",
+    subtitle = "Higher Gamma = Sharper 'Value Conflict' Peak",
+    x = "Value Difference (Right - Left)",
+    y = "Predicted Response Time (ms)"
+  ) +
+  theme_minimal()
+
+# Plotting the 'Shifted Humps'
+# 1. Join labels to BOTH dataframes
+preds_labeled <- preds %>%
+  dplyr::left_join(recovery_df, by = "subject_id") %>%
+  dplyr::mutate(
+    type = "Predicted",
+    delta_val = value_right - value_left,
+    gamma_label = paste0("Subject ", subject_id, "\n(Gamma = ", round(estimated_gamma, 2), ")")
+  )
+
+obs_labeled <- processed_data %>%
+  dplyr::left_join(recovery_df, by = "subject_id") %>%
+  dplyr::mutate(
+    type = "Observed",
+    delta_val = value_right - value_left,
+    gamma_label = paste0("Subject ", subject_id, "\n(Gamma = ", round(estimated_gamma, 2), ")")
+  )
+
+# 2. Filter for the extreme subjects we identified earlier
+# (Assuming high_gamma_id and low_gamma_id are still in your environment)
+plot_subset <- dplyr::bind_rows(preds_labeled, obs_labeled) %>%
+  dplyr::filter(subject_id %in% c(low_gamma_id, high_gamma_id))
+
+# 3. Plot with consistent faceting
+ggplot(plot_subset, aes(x = delta_val, y = rt, color = type)) +
+  # Use geom_smooth to see the 'hump' clearly
+  geom_smooth(method = "loess", alpha = 0.2) +
+  # Add points with very low alpha to see the distribution spread
+  geom_point(alpha = 0.1, size = 0.5) +
+  facet_wrap(~gamma_label, scales = "free_y") +
+  labs(
+    title = "RT Hump Comparison by Subject Gamma",
+    subtitle = "Observed vs. Predicted RT distributions",
+    x = "Value Difference (Right - Left)",
+    y = "Response Time (ms)",
+    color = "Data Source"
+  ) +
+  theme_minimal()
 
 preds <- predict_glam(fit, processed_data, n_sims = 5)
 plot_glam_fit(processed_data, preds) +

@@ -9,12 +9,16 @@ predict_glam(fit, newdata, n_sims = 10, type = "mean")
 \arguments{
 \item{fit}{A cmdstanr fit object.}
 
-\item{newdata}{A data frame prepared via prep_glam_data.}
+\item{newdata}{A data frame prepared via \code{prep_glam_data}.}
 
 \item{n_sims}{Number of simulations per trial.}
 
-\item{type}{Character, "mean" to use posterior means or "posterior" to sample.}
+\item{type}{Character, either "mean" to use posterior means or 
+"posterior" to sample from the full posterior distribution.}
 }
 \description{
-Generate Predictions from a Fitted GLAM
+This function generates simulated choices and response times using the 
+parameters estimated by a GLAM fit. It can use either the posterior means 
+for a point-estimate prediction or sample from the full posterior 
+distribution to capture model uncertainty.
 }

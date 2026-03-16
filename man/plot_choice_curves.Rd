@@ -9,8 +9,9 @@ plot_choice_curves(data, bin_gaze = FALSE)
 \arguments{
 \item{data}{Prepared data frame (observed or predicted).}
 
-\item{bin_gaze}{Logical. If TRUE, splits curves by gaze advantage (Left vs Right).}
+\item{bin_gaze}{Logical. If TRUE, splits curves by gaze advantage.}
 }
 \description{
-Plot Choice Psychometric Curves
+Visualizes the probability of choosing the right item as a function of 
+the value difference, optionally split by gaze advantage.
 }

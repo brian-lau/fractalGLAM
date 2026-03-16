@@ -7,10 +7,15 @@
 prep_glam_data(df, scale_range = c(1, 10))
 }
 \arguments{
-\item{df}{A data frame containing trial data.}
+\item{df}{A data frame containing trial data. Must include: subject_id, rt, 
+choice, value_left, value_right, gaze_left, gaze_right.}
 
-\item{scale_range}{Numeric vector of length 2 for rescaling Z-scores.}
+\item{scale_range}{Numeric vector of length 2. The GLAM typically requires 
+positive values (e.g., 1 to 10) to define the drift rate.}
 }
 \description{
-Prepare Trial Data for GLAM
+This function performs essential cleaning and normalization required by the 
+Gaze-weighted Linear Accumulator Model. It validates that values are Z-scored,
+rescales them to a positive range for the drift process, and ensures gaze
+proportions sum to 1.
 }

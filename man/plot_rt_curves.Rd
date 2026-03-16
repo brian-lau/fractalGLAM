@@ -2,7 +2,7 @@
 % Please edit documentation in R/viz_utils.R
 \name{plot_rt_curves}
 \alias{plot_rt_curves}
-\title{Plot RT Chronometric Curves with Optional Raw Data}
+\title{Plot RT Chronometric Curves}
 \usage{
 plot_rt_curves(data, observed_data = NULL, bin_gaze = FALSE)
 }
@@ -14,5 +14,5 @@ plot_rt_curves(data, observed_data = NULL, bin_gaze = FALSE)
 \item{bin_gaze}{Logical. If TRUE, splits curves by gaze advantage.}
 }
 \description{
-Plot RT Chronometric Curves with Optional Raw Data
+Plot RT Chronometric Curves
 }

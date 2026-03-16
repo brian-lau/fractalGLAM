@@ -1,29 +1,33 @@
-functions {
-  real glam_drift(real v_this, real v_other, real g_this, real g_other, real gamma, real nu, real s) {
-    real signal = (v_this * (g_this + gamma * g_other)) - (v_other * (g_other + gamma * g_this));
-    return nu * s * (1 / (1 + exp(-signal))); 
-  }
-}
+// inst/stan/hierarchical_glam.stan
+
+// Include the shared likelihood function
+#include glam_likelihood.stan
 
 data {
-  int<lower=1> N;
-  int<lower=1> J;
-  array[N] int<lower=1,upper=J> subject; 
-  array[N] int<lower=0,upper=1> choice; 
-  vector[N] rt;
-  vector[N] v_left;
-  vector[N] v_right;
-  vector[N] g_left;
-  vector[N] g_right;
-  real s_fixed; // If > 0, use this; if -1, estimate.
+  int<lower=1> N;                // Total number of trials across all subjects
+  int<lower=1> J;                // Number of subjects
+  array[N] int<lower=1,upper=J> subject; // Subject index for each trial
+  array[N] int<lower=0,upper=1> choice;  // Binary choice (1 = Right, 0 = Left)
+  vector[N] rt;                  // Response time in milliseconds (or seconds)
+  vector[N] v_left;              // Value of the left item (Z-scored)
+  vector[N] v_right;             // Value of the right item (Z-scored)
+  vector[N] g_left;              // Relative gaze to the left item (0-1)
+  vector[N] g_right;             // Relative gaze to the right item (0-1)
+  real s_fixed;                  // Fixed scaling constant (if > 0); else estimated
 }
 
 parameters {
-  real mu_v_raw;
-  real mu_gamma_raw;
-  real mu_sigma_raw;
-  real mu_s_raw;
+  // Hyper-parameters (Group-level means on the unconstrained scale)
+  real mu_v_raw;                 // Mean of log(velocity)
+  real mu_gamma_raw;             // Mean of logit(gamma)
+  real mu_sigma_raw;             // Mean of log(noise)
+  real mu_s_raw;                 // Mean of log(scaling) if estimated
+
+  // Hierarchical scales (Width of individual differences)
   vector<lower=0>[4] tau;
+
+  // Individual-level offsets for Non-Centered Parameterization (NCP)
+  // This helps the sampler navigate the "funnel" of hierarchical models.
   vector[J] v_offset;
   vector[J] gamma_offset;
   vector[J] sigma_offset;
@@ -31,81 +35,56 @@ parameters {
 }
 
 transformed parameters {
-  vector<lower=0>[J] v;
-  vector<lower=0,upper=1>[J] gamma;
-  vector<lower=0>[J] sigma;
-  vector<lower=0>[J] s;
+  vector<lower=0>[J] v;          // Subject-level velocity
+  vector<lower=0,upper=1>[J] gamma; // Subject-level attentional discount
+  vector<lower=0>[J] sigma;      // Subject-level log-normal noise
+  vector<lower=0>[J] s;          // Subject-level scaling constant
 
   for (j in 1:J) {
+    // Non-Centered Parameterization: Param = exp(Group_Mean + Scale * Offset)
     v[j] = exp(mu_v_raw + tau[1] * v_offset[j]);
     gamma[j] = inv_logit(mu_gamma_raw + tau[2] * gamma_offset[j]);
     sigma[j] = exp(mu_sigma_raw + tau[3] * sigma_offset[j]);
+    
+    // Use fixed s if provided in data; otherwise estimate hierarchically
     s[j] = (s_fixed > 0) ? s_fixed : exp(mu_s_raw + tau[4] * s_offset[j]);
   }
 }
 
-/*model {
-  mu_v_raw ~ normal(0, 1);
-  mu_gamma_raw ~ normal(0, 1);
-  mu_sigma_raw ~ normal(0, 1);
-  mu_s_raw ~ normal(-8, 1);
-  tau ~ cauchy(0, 2.5);
-  
-  v_offset ~ std_normal();
-  gamma_offset ~ std_normal();
-  sigma_offset ~ std_normal();
-  s_offset ~ std_normal();
-
-  for (n in 1:N) {
-    int sj = subject[n];
-    real drift = glam_drift(v_right[n], v_left[n], g_right[n], g_left[n], gamma[sj], v[sj], s[sj]);
-    //rt[n] ~ normal(1.0 / drift, sigma[sj]); 
-    // Log-normal is often more stable for RT than normal(1/drift) in VB
-    rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 
-    choice[n] ~ bernoulli_logit(drift); 
-  }
-}*/
-
 model {
-  // Priors: Adjusted for better recovery
-  mu_v_raw ~ normal(1, 0.5);       // Pull mu_v slightly higher
-  mu_gamma_raw ~ normal(-0.8, 0.5); // Prior centered around 0.3 in logit space
+  // --- 1. Priors ---
+  // Informative priors based on typical GLAM parameter ranges
+  mu_v_raw ~ normal(1, 0.5);     // Velocity usually centers around exp(1) ≈ 2.7
+  mu_gamma_raw ~ normal(-0.8, 0.5); // Gamma centers around logit(-0.8) ≈ 0.3
   mu_sigma_raw ~ normal(0, 0.5);
-  mu_s_raw ~ normal(-8, 0.5);
+  mu_s_raw ~ normal(-8, 0.5);    // Scaling constant is often very small (e.g., 3e-4)
   
-  tau ~ normal(0, 1);              // Tighter SD priors for group-level offsets
+  tau ~ normal(0, 1);            // Standard half-normal for hierarchical scales
   
+  // NCP offsets must follow a standard normal distribution
   v_offset ~ std_normal();
   gamma_offset ~ std_normal();
   sigma_offset ~ std_normal();
   s_offset ~ std_normal();
 
-/*  for (n in 1:N) {
-    int sj = subject[n];
-    real drift = glam_drift(v_right[n], v_left[n], g_right[n], g_left[n], 
-                                     gamma[sj], v[sj], s[sj]);
-    
-    // Likelihood: Using lognormal for RT stability
-    rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 
-    // Choice: Using bernoulli with the drift-based probability
-    choice[n] ~ bernoulli(inv_logit(drift * 100)); // Magnify signal for choice sensitivity
-  }*/
-  
+  // --- 2. Likelihood ---
   for (n in 1:N) {
     int sj = subject[n];
     
-    // Calculate the raw signal for Choice
+    // Call the SHARED function for RT drift
+    // Note: We use v_right as 'this' and v_left as 'other' to define 
+    // the signal relative to the Right choice.
+    real drift_raw = calculate_glam_drift(v_right[n], v_left[n], g_right[n], g_left[n], 
+                                          gamma[sj], v[sj], s[sj]);
+    
+    real drift = fmax(drift_raw, 1e-7); 
+
+    // We still need the raw signal for the Choice bernoulli_logit
     real signal = (v_right[n] * (g_right[n] + gamma[sj] * g_left[n])) - 
-    (v_left[n] * (g_left[n] + gamma[sj] * g_right[n]));
-    
-    // Calculate magnitude-based drift for RT
-    real drift = v[sj] * s[sj] * (abs(signal) + 0.01);
-    
-    // Ensure drift is never exactly zero
-    if (drift <= 0) drift = 1e-9;
+                  (v_left[n] * (g_left[n] + gamma[sj] * g_right[n]));
 
     // Likelihoods
     rt[n] ~ lognormal(log(1.0 / drift), sigma[sj]); 
-    choice[n] ~ bernoulli_logit(signal * 0.5); // Choice follows the sign of the signal
+    choice[n] ~ bernoulli_logit(signal * 0.5);
   }
 }

@@ -4,17 +4,32 @@
 \alias{fit_glam}
 \title{Fit GLAM via Hierarchical Bayesian Inference}
 \usage{
-fit_glam(data, method = "meanfield", s_val = 3e-04, ...)
+fit_glam(
+  data,
+  method = "meanfield",
+  s_val = 3e-04,
+  force_recompile = FALSE,
+  ...
+)
 }
 \arguments{
-\item{data}{Data frame from prep_glam_data.}
+\item{data}{Data frame prepared via \code{prep_glam_data}.}
 
-\item{method}{"meanfield" (VB) or "sample" (MCMC).}
+\item{method}{Character, either "meanfield" (Variational Bayes) or 
+"sample" (Hamiltonian Monte Carlo). Defaults to "meanfield".}
 
-\item{s_val}{Numeric value for fixed s, or NULL to estimate.}
+\item{s_val}{Numeric. A fixed scaling constant (e.g., 3e-4). If NULL, 
+the model will attempt to estimate 's' as a free parameter.}
 
-\item{...}{Additional arguments passed to the cmdstanr fit methods (e.g., iter, chains).}
+\item{force_recompile}{Logical. If TRUE, forces Stan to recompile the model 
+executable. Useful if the underlying Stan code has changed. 
+Defaults to FALSE for speed.}
+
+\item{...}{Additional arguments passed to the cmdstanr fit methods 
+(e.g., iter, chains, parallel_chains, adapt_delta).}
 }
 \description{
-Fit GLAM via Hierarchical Bayesian Inference
+This function interfaces with CmdStan to fit the Gaze-weighted Linear 
+Accumulator Model. It supports both Variational Bayes (fast approximation) 
+and MCMC (full posterior sampling).
 }
