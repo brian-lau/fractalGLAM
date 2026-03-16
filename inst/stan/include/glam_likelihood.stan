@@ -2,42 +2,67 @@
 
 functions {
   /**
-   * Wiener CDF Approximation
-   * Calculates the probability of an accumulator being below boundary at time t.
-   */
-  real wiener_cdf_approx(real t, real alpha, real tau, real beta, real delta) {
-    if (t <= tau) return 0.0;
-    real t_adj = t - tau;
-    // Large-time approximation for the Wiener CDF with single boundary
-    return 1.0 - exp(-2.0 * delta * alpha * (1.0 - beta) - 0.5 * delta^2 * t_adj);
+  * Log-Survival Function for Single-Boundary Wiener Process
+  * Calculates log(P(T > t)), the probability an accumulator has NOT hit 
+  * the boundary by time t.
+  */
+  real wiener_race_survival_lccdf(real t, real a, real delta, real sigma) {
+    // Safety check: if time is effectively zero, survival is 100% (log(1)=0)
+    if (t < 1e-7) return 0.0; 
+    
+    // Using fmax(t, 1e-7) inside the calculation for numerical stability
+    return std_normal_lcdf((a - delta * t) / (sigma * sqrt(fmax(t, 1e-7))));
   }
-
+  
   /**
-   * Logistic Drift Rate Mapping (glambox spec)
-   */
-  real calculate_glam_drift(real signal, real nu, real s) {
-    return nu / (1.0 + exp(-s * signal));
+  * Inverse Gaussian Log-Density
+  * Correct likelihood for a Wiener process with a single absorbing boundary.
+  */
+  real inverse_gaussian_lpdf(real x, real mu, real lambda) {
+    if (x <= 0) return -1e10;
+    return 0.5 * log(lambda / (2 * pi() * pow(x, 3))) - 
+    (lambda * square(x - mu)) / (2 * square(mu) * x);
   }
-
+  
   /**
-   * GLAM Race Likelihood (N-Item)
-   */
-  real glam_race_lpdf(real rt, int winner_idx, vector drifts, real boundary, real tau) {
+  * Linear Drift (Stable for 2-item sets)
+  */
+  real calculate_glam_drift_simple(real abs_ev, real nu) {
+    return nu * abs_ev;
+  }
+  
+  /**
+  * Scaled Logistic Drift (Robust for N-item sets)
+  */
+  real calculate_glam_drift_multinomial(real rel_signal, real abs_ev, real nu, real s) {
+    return nu * abs_ev / (1.0 + exp(-s * rel_signal));
+  }
+  
+  /**
+  * GLAM Race Likelihood (N-Item Inverse Gaussian)
+  * This matches the single-boundary simulation logic in R.
+  */
+  real glam_race_lpdf(real rt, int winner_idx, vector drifts, real boundary, real tau, real sigma) {
     int K_items = num_elements(drifts);
     real lp = 0;
+    real t_adj = rt - tau;
     
-    // Clamp drifts to a numerically stable range (prevents gradients from exploding)
-    vector[K_items] safe_drifts;
-    for(k in 1:K_items) safe_drifts[k] = fmin(fmax(drifts[k], 1e-4), 50.0);
+    // Safety guard for Non-Decision Time
+    if (t_adj <= 0) return -1e10;
     
-    // 1. Likelihood of the Winner
-    lp += wiener_lpdf(rt | boundary, tau, 0.5, safe_drifts[winner_idx]);
-    
-    // 2. Likelihood of the Losers (The Competition)
-    for (j in 1:K_items) {
-      if (j != winner_idx) {
-        real cdf = wiener_cdf_approx(rt, boundary, tau, 0.5, safe_drifts[j]);
-        lp += log(fmax(1.0 - cdf, 1e-10)); 
+    for (k in 1:K_items) {
+      real d = fmax(drifts[k], 1e-4); // Ensure positive drift
+      
+      if (k == winner_idx) {
+        // 1. Density of the Winner (Inverse Gaussian)
+        // mu = a/d, lambda = a^2/sigma^2
+        real mu = boundary / d;
+        real lambda = square(boundary) / square(sigma);
+        lp += inverse_gaussian_lpdf(t_adj | mu, lambda);
+      } else {
+        // 2. Log-Survival of the Losers
+        // Vertical bar (|) is required here for the _lccdf suffix
+        lp += wiener_race_survival_lccdf(t_adj | boundary, d, sigma);
       }
     }
     return lp;

@@ -16,6 +16,6 @@ predict_glam(fit, newdata, n_sims = 10, type = "mean")
 \item{type}{Character, "mean" to use posterior means or "posterior" to sample.}
 }
 \description{
-Simulates a stochastic race between K accumulators for each trial using
-the logistic drift mapping and Wiener process logic.
+Simulates a stochastic race between K accumulators for each trial.
+Matches the Stan model's "Start at Zero" logic and Dual-Path drift architecture.
 }

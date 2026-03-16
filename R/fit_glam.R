@@ -40,7 +40,7 @@ fit_glam <- function(data, method = "meanfield", s_val = NULL,
     v = as.matrix(data[, v_cols]),
     g = as.matrix(data[, g_cols]),
     s_fixed = ifelse(is.null(s_val), -1.0, s_val),
-    min_rt = min(data$rt) # ADD THIS LINE
+    min_rt = min(data$rt)
   )
   
   # 4. Execute Inference
